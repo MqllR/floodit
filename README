@@ -1,0 +1,8 @@
+floodICMP
+=====
+
+floodICMP is a small C program. The aim of this program is not to perturb networks but understand how IP and ICMP protocols work.
+
+Functioning :
+
+floodICMP send packets to a broadcast address with a spoofed source IP address which will be the victim.
