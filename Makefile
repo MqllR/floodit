@@ -5,10 +5,13 @@ EXEC=floodit
 
 all: $(EXEC)
 
-floodit: floodit.o
+floodit: floodit.o main.o
 	$(CC) -o $@ $^ $(LFLAGS)
 
 floodit.o: floodit.c
+	$(CC) -o $@ -c $< $(CFLAGS)
+
+main.o: main.c
 	$(CC) -o $@ -c $< $(CFLAGS)
 
 clean:
