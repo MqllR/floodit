@@ -13,11 +13,10 @@
 
 #include "floodit.h"
 
-#include <arpa/inet.h>	// htons, inet_addr ...
-#include <stdio.h>   // perror, printf
-#include <stdlib.h>   // Flags, exit
-#include <string.h>	// memset, memcpy
-#include <unistd.h>	// close, getuid, getopt
+#include <stdio.h>   /* perror, printf */
+#include <stdlib.h>   /* Flags, exit */
+#include <string.h>	/* memset, memcpy */
+#include <unistd.h>	/* close, getuid, getopt */
 #include <errno.h>
 
 extern char *optarg;
