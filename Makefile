@@ -1,5 +1,5 @@
 CC=/usr/bin/gcc
-CFLAGS=-W -Wall -ansi -pedantic
+CFLAGS=-W -Wall 
 LFLAGS=
 EXEC=floodit
 

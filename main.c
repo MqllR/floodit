@@ -11,28 +11,30 @@
 /* Contact : ride_online@hotmail.fr		   */
 /***************************************************/
 
-#include <sys/socket.h>
+#include "floodit.h"
+
 #include <arpa/inet.h>	// htons, inet_addr ...
-#include <linux/ip.h>   // IP header
-#include <linux/icmp.h>	  // ICMP header
-#include <linux/udp.h>	  // UDP header
-#include <linux/tcp.h>	  // TCP header
 #include <stdio.h>   // perror, printf
 #include <stdlib.h>   // Flags, exit
 #include <string.h>	// memset, memcpy
 #include <unistd.h>	// close, getuid, getopt
 #include <errno.h>
 
+extern char *optarg;
+extern int optind, opterr, optopt;
+
+
 int main(int argc, char **argv)
 {
-	struct iphdr *ip;	// Header IP
-	struct sockaddr_in dest_addr = {0};	// Interface dest
+	struct iphdr *ip;	/* Header IP */
+	struct sockaddr_in dest_addr;	/* Interface dest */
 	int sock;
 	int ch;
-	char *packet;	// Packet to send
+	char *packet;	/* Packet to send */
 	char *proto = NULL;
 	char *ipaddr_spoofed = NULL;
-	unsigned int port = 80, speed = 1, nbpacket = 0; // Options by default
+	char payload[] = "Hello !";
+	unsigned int port = 80, speed = 1, nbpacket = 0; /* Options by default */
 
 
 	if(getuid() != 0) {
@@ -48,13 +50,12 @@ int main(int argc, char **argv)
 	while((ch = getopt(argc, argv, "t:q:n:s:p:h")) != -1 ) {
 		switch(ch) {
 			case 't':
-// PROBLEME ENCODAGE || ??	if(strncmp(optarg, "icmp", 4) != 0 || strncmp(optarg, "tcp", 3) != 0 || strncmp(optarg, "udp", 3) != 0)
+/* PROBLEME ENCODAGE || ??	if(strncmp(optarg, "icmp", 4) != 0 || strncmp(optarg, "tcp", 3) != 0 || strncmp(optarg, "udp", 3) != 0)
 	//			if(strncmp(optarg, "icmp", 4) != 0)
 	//			{
 	//				printf("Error with option -t (Only the values icmp, tcp or udp are available)\n");
 	//				exit(EXIT_FAILURE);
-	//			}
-
+				} */
 				proto = optarg;
 				break;
 			case 'q':
@@ -97,24 +98,24 @@ int main(int argc, char **argv)
 	printf("+---------------------------------------+\n\n");
 
 
-	// Allocate memory
-	ip = malloc(sizeof(struct iphdr));
+	/* Allocate memory */
+	ip = (struct iphdr *) malloc(sizeof(struct iphdr));
 
 /*	PROBLEME LORS DE L'INITIALISATION	
 	if(strncmp(proto, "icmp", 4) == 0) {
-		packet = malloc(sizeof(struct iphdr) + sizeof(struct icmphdr));
-	//	memset(packet, sizeof(struct iphdr) + sizeof(struct icmphdr), 0);
+		packet = malloc(sizeof(struct iphdr) + sizeof(struct icmphdr) + strlen(payload));
+		memset(packet, sizeof(struct iphdr) + sizeof(struct icmphdr), 0); 
 	}
 	else if(strncmp(proto, "tcp", 3) == 0) {
-		packet = malloc(sizeof(struct iphdr) + sizeof(struct tcphdr));
-	//	memset(packet, sizeof(struct iphdr) + sizeof(struct tcphdr), 0);
+		packet = malloc(sizeof(struct iphdr) + sizeof(struct tcphdr) + strlen(payload));
+		memset(packet, sizeof(struct iphdr) + sizeof(struct tcphdr), 0); 
 	}
 	else { 
-		packet = malloc(sizeof(struct iphdr) + sizeof(struct udphdr));
-	//	memset(packet, sizeof(struct iphdr) + sizeof(struct udphdr), 0);
-	}
-*/
-	// Init the different header	
+		packet = malloc(sizeof(struct iphdr) + sizeof(struct udphdr) + strlen(payload));
+		memset(packet, sizeof(struct iphdr) + sizeof(struct udphdr), 0); 
+	}  */
+
+	/* Init the different header */
 	sock = init_raw_connection(ip, &dest_addr, ipaddr_spoofed, argv[argc - 1], packet, proto, port);
 
 	if(nbpacket == 0)
@@ -124,7 +125,7 @@ int main(int argc, char **argv)
 
 	free(ip);
 
-	close(sock);	// Close socket
+	close(sock);	/* Close socket */
 
 	return EXIT_SUCCESS;
 }
